@@ -1,0 +1,12 @@
+{
+    "dev": {
+        "project_name": "dash-example",
+        "app_function": "app.server",
+        "aws_region": "eu-west-1",
+        "s3_bucket": "project1-ls",
+        "slim_handler": false,
+        "keep_warm": false,
+        "include": [],
+        "payload_compression": false
+    }
+}

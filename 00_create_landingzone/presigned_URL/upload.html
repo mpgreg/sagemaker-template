@@ -1,0 +1,32 @@
+<html>
+  <head>
+    
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    
+  </head>
+  <body>
+
+  <form action="https://project1-lz.s3.eu-west-1.amazonaws.com/upload/?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQAFUNCGWAMXFLREQ%2F20201006%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20201006T173911Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEMr%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCWV1LXdlc3QtMSJHMEUCIBZth3f%2F6kCrMlpAB%2BYzZHK2L9QFMtyipNBx1mVSBF0bAiEA4nvGTE1i8EHwZBPvIxMmySuqzhBYiqpWCizeUQsXBl0qwAII8%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgwwMDAzNzgzNDM4NTIiDI1mehj88nA13FRsrSqUAhay2Z8IqRdC197%2FIuHi5VaRn2Oekjb40smBIKqKnsrfoRoQVH%2BrCUhUadlSx9u3hfWWYFZiZOv7Fq8cTpZcD%2BUvt%2F8JviPYJxonX%2BsRjUBhcjc9TGfcQAFvbCe8byFaiIluCzvMhXXcYT3%2BCm0TtT5gRvCRy%2BsvSAUZI1XmPzM03nW5tBFEf2n3SndQrPKYjpymPSs5bcTZuH1P1Q1VpNrF7ok5pVupvFyhQMOyQFuA8tcfEUszkQOlE%2B4c0UKnr%2BFB4VUacx70GaSasOjMNeBg3Foj4BKJd62a3A8DfruMP92mxumc7lRmn92sBpQF7bSe9J7KX8D0tzn430uQqDtKIZbSA65tPS2RfeWfPDw%2F9gB1TzCx0%2FL7BTqkAcDkfLj%2FO%2F6nFRXebNqIsB2FfNgAzI6OuyvlNL3hDQuzYWp4zMG2HnKxW8%2Fwdb%2B9nY9PE%2F3jzTW57A3Rv9GaYgDZxeIcB2t3iILu3VEKYmXNoAni9uByaEZtDsyFcyVfW2QM4845WmuYXMHGgOAFCi6%2BXZFfCQfDlqaa8Ps4b8ELBcv%2Bs0R5kReHYfHjzIpzE35iL1dlfPeGd1Bv8%2F%2BRR179EOmF&X-Amz-Signature=b7e74c71cdb11280af81c48d162bc9fabc98641d55ac8a82981abdda2a9e428d" method="post" enctype="multipart/form-data">
+    Key to upload: 
+    <input type="input"  name="key" value="upload/" /><br />
+    <input type="hidden" name="acl" value="public-read" />
+    <input type="hidden" name="success_action_redirect" value="http://sigv4examplebucket.s3.amazonaws.com/successful_upload.html" />
+    Content-Type: 
+    <input type="input"  name="Content-Type" value="image/jpeg" /><br />
+    <input type="hidden" name="x-amz-meta-uuid" value="14365123651274" /> 
+    <input type="hidden" name="x-amz-server-side-encryption" value="AES256" /> 
+    <input type="text"   name="X-Amz-Credential" value="ASIAQAFUNCGWP7HII4HH/20201006/us-east-1/s3/aws4_request" />
+    <input type="text"   name="X-Amz-Algorithm" value="AWS4-HMAC-SHA256" />
+    <input type="text"   name="X-Amz-Date" value="20201006T161227Z" />
+
+    Tags for File: 
+    <input type="input"  name="x-amz-meta-tag" value="" /><br />
+    <input type="hidden" name="Policy" value='<Base64-encoded policy string>' />
+    <input type="hidden" name="X-Amz-Signature" value="e0c9578fcd378f6c950c9fb10cfa6ce73ee1193d4153431d8ea876741a5bcf13" />
+    File: 
+    <input type="file"   name="file" /> <br />
+    <!-- The elements after this will be ignored -->
+    <input type="submit" name="submit" value="Upload to Amazon S3" />
+  </form>
+  
+</html>

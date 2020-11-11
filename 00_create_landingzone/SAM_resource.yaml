@@ -1,0 +1,49 @@
+  cloudfrontauthorizationatedge:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:us-east-1:520945424137:applications/cloudfront-authorization-at-edge
+        SemanticVersion: 2.0.3
+      Parameters: 
+        # Specify one or more additional cookies to set after successfull sign-in. Specify as a JSON object––mapping cookie names to values and settings: {"cookieName1": "cookieValue1; HttpOnly; Secure"}
+        # AdditionalCookies: '{}' # Uncomment to override default value
+        # If you intend to use one or more custom domain names for the CloudFront distribution, please set that up yourself on the CloudFront distribution after deployment. If you provide those domain names now (comma-separated) the necessary Cognito configuration will already be done for you. Alternatively, update the Cognito configuration yourself after deployment: add sign in and sign out URLs for your custom domains to the user pool app client settings.
+        # AlternateDomainNames: '' # Uncomment to override default value
+        # Specify whether naming of cookies should be compatible with AWS Amplify (default) or Amazon Elasticsearch Service. In case of the latter, turn off SPA mode too: set parameter EnableSPAMode to false
+        # CookieCompatibility: 'amplify' # Uncomment to override default value
+        # The settings for the cookies holding e.g. the JWT's. To be provided as a JSON object, mapping cookie type to setting. Provide the setting for the particular cookie type as a string, e.g. "Path=/; Secure; HttpOnly; Max-Age=1800; SameSite=Lax". If left to null, a default setting will be used that should be suitable given the value of "EnableSPAMode" parameter.
+        # CookieSettings: '{
+          #"idToken": null,
+          #"accessToken": null,
+          #"refreshToken": null,
+          #"nonce": null
+        #}' # Uncomment to override default value
+        # Set to 'false' to skip the creation of a CloudFront distribution and associated resources, such as the private S3 bucket and the sample React app. This may be of use to you, if you just want to create the Lambda@Edge functions to use with your own CloudFront distribution.
+        # CreateCloudFrontDistribution: 'true' # Uncomment to override default value
+        # The email address of the user that will be created in the Cognito User Pool. Leave empty to skip user creation.
+        EmailAddress: 'milesper@gmail.com' #################################
+        # Set to 'false' to disable SPA-specific features (i.e. when deploying a static site that won't interact with logout/refresh)
+        # EnableSPAMode: 'true' # Uncomment to override default value
+        # The HTTP headers to set on all responses from CloudFront. To be provided as a JSON object
+        HttpHeaders: '{}' #################################
+        # Use for development: setting to a value other than none turns on logging at that level. Warning! This will log sensitive data, use for development only
+        # LogLevel: 'none' # Uncomment to override default value
+        # The OAuth scopes to request the User Pool to add to the access token JWT
+        # OAuthScopes: 'phone, email, profile, openid, aws.cognito.signin.user.admin' # Uncomment to override default value
+        # The URL path that should handle the JWT refresh request
+        # RedirectPathAuthRefresh: '/refreshauth' # Uncomment to override default value
+        # The URL path that should handle the redirect from Cognito after sign-in
+        # RedirectPathSignIn: '/parseauth' # Uncomment to override default value
+        # The URL path that should handle the redirect from Cognito after sign-out
+        # RedirectPathSignOut: '/' # Uncomment to override default value
+        # The URL path that you can visit to sign-out
+        # SignOutUrl: '/signout' # Uncomment to override default value
+        # Specify the ARN of an existing user pool to use that one instead of creating a new one. If specified, then UserPoolClientId must also be specified. Also, the User Pool should have a domain configured
+        # UserPoolArn: '' # Uncomment to override default value
+        # Specify the ID of an existing user pool client to use that one instead of creating a new one. If specified, then UserPoolArn must also be specified. Note: new callback URL's will be added to the pre-existing user pool client
+        # UserPoolClientId: '' # Uncomment to override default value
+        # Specify a group that users have to be part of to view the private site. Use this to further protect your private site, in case you don't want every user in the User Pool to have access. The UserPoolGroup will be created if the UserPool is also created (that happens when no UserPoolArn is set). If the UserPoolGroup is created and the default user is also created (when you specify EmailAddress), that user will also be added to the group.
+        # UserPoolGroupName: '' # Uncomment to override default value
+        # Use for development: putting in a new version forces redeployment of Lambda@Edge functions
+        # Version: '' # Uncomment to override default value  
+      

@@ -1,0 +1,7 @@
+cd ~/airline-sentiment/data-eng/ScalaApp
+wget https://github.com/sbt/sbt/releases/download/v1.4.2/sbt-1.4.2.zip
+unzip sbt-1.4.2.zip
+rm sbt-1.4.2.zip
+cd anonymize
+../sbt/bin/sbt assembly
+cp target/scala-2.11/Anonymize-assembly-0.1.0.jar ../../

@@ -1,0 +1,27 @@
+[
+    {
+        "AllowedHeaders": [
+            "*"
+        ],
+        "AllowedMethods": [
+            "PUT",
+            "POST",
+            "DELETE",
+            "GET",
+            "HEAD"
+        ],
+        "AllowedOrigins": [
+            "https://dwoxt2hwst627.cloudfront.net",
+            "https://dwoxt2hwst627.cloudfront.net/"
+        ],
+        "ExposeHeaders": [
+            "ETag",
+            "x-amz-meta-custom-header",
+            "x-amz-server-side-encryption",
+            "x-amz-request-id",
+            "x-amz-id-2",
+            "date"
+        ],
+        "MaxAgeSeconds": 3000
+    }
+]

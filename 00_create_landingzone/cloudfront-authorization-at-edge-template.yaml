@@ -1,0 +1,1183 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  Protect downloads of your content hosted on CloudFront with Cognito authentication using Lambda@Edge
+Parameters:
+  EmailAddress:
+    Type: String
+    Description: The email address of the user that will be created in the Cognito User Pool. Leave empty to skip user creation.
+    Default: 'milesper@gmail.com'
+  RedirectPathSignIn:
+    Type: String
+    Description: The URL path that should handle the redirect from Cognito after sign-in
+    Default: /parseauth
+  RedirectPathSignOut:
+    Type: String
+    Description: The URL path that should handle the redirect from Cognito after sign-out
+    Default: /
+  RedirectPathAuthRefresh:
+    Type: String
+    Description: The URL path that should handle the JWT refresh request
+    Default: /refreshauth
+  SignOutUrl:
+    Type: String
+    Description: The URL path that you can visit to sign-out
+    Default: /signout
+  AlternateDomainNames:
+    Type: CommaDelimitedList
+    Description: 'If you intend to use one or more custom domain names for the CloudFront
+      distribution, please set that up yourself on the CloudFront distribution after
+      deployment. If you provide those domain names now (comma-separated) the necessary
+      Cognito configuration will already be done for you. Alternatively, update the
+      Cognito configuration yourself after deployment: add sign in and sign out URLs
+      for your custom domains to the user pool app client settings.'
+    Default: ''
+  CookieSettings:
+    Type: String
+    Description: The settings for the cookies holding e.g. the JWT's. To be provided as a JSON object, mapping cookie type to setting. Provide the setting for the particular cookie type as a string, e.g. "Path=/; Secure; HttpOnly; Max-Age=1800; SameSite=Lax". If left to null, a default setting will be used that should be suitable given the value of "EnableSPAMode" parameter.
+    Default: |-
+      {
+        "idToken": null,
+        "accessToken": null,
+        "refreshToken": null,
+        "nonce": null
+      }
+  OAuthScopes:
+    Type: CommaDelimitedList
+    Description: The OAuth scopes to request the User Pool to add to the access token JWT
+    Default: phone, email, profile, openid, aws.cognito.signin.user.admin
+  HttpHeaders:
+    Type: String
+    Description: The HTTP headers to set on all responses from CloudFront. To be provided as a JSON object
+    Default: '{}'
+  EnableSPAMode:
+    Type: String
+    Description: Set to 'false' to disable SPA-specific features (i.e. when deploying a static site that won't interact with logout/refresh)
+    Default: 'true'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  CreateCloudFrontDistribution:
+    Type: String
+    Description: Set to 'false' to skip the creation of a CloudFront distribution and associated resources, such as the private S3 bucket and the sample React app. This may be of use to you, if you just want to create the Lambda@Edge functions to use with your own CloudFront distribution.
+    Default: 'true'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  CookieCompatibility:
+    Type: String
+    Description: 'Specify whether naming of cookies should be compatible with AWS
+      Amplify (default) or Amazon Elasticsearch Service. In case of the latter, turn
+      off SPA mode too: set parameter EnableSPAMode to false'
+    Default: amplify
+    AllowedValues:
+    - amplify
+    - elasticsearch
+  AdditionalCookies:
+    Type: String
+    Description: 'Specify one or more additional cookies to set after successfull
+      sign-in. Specify as a JSON object––mapping cookie names to values and settings:
+      {"cookieName1": "cookieValue1; HttpOnly; Secure"}'
+    Default: '{}'
+  UserPoolArn:
+    Type: String
+    Description: Specify the ARN of an existing user pool to use that one instead of creating a new one. If specified, then UserPoolClientId must also be specified. Also, the User Pool should have a domain configured
+    Default: ''
+  UserPoolClientId:
+    Type: String
+    Description: 'Specify the ID of an existing user pool client to use that one instead
+      of creating a new one. If specified, then UserPoolArn must also be specified.
+      Note: new callback URL''s will be added to the pre-existing user pool client'
+    Default: ''
+  UserPoolGroupName:
+    Type: String
+    Description: |
+      Specify a group that users have to be part of to view the private site. Use this to further protect your private site, in case you don't want every user in the User Pool to have access. The UserPoolGroup will be created if the UserPool is also created (that happens when no UserPoolArn is set). If the UserPoolGroup is created and the default user is also created (when you specify EmailAddress), that user will also be added to the group.
+    Default: ''
+  Version:
+    Type: String
+    Description: 'Use for development: putting in a new version forces redeployment
+      of Lambda@Edge functions'
+    Default: ''
+  LogLevel:
+    Type: String
+    Description: 'Use for development: setting to a value other than none turns on
+      logging at that level. Warning! This will log sensitive data, use for development
+      only'
+    Default: none
+    AllowedValues:
+    - none
+    - info
+    - warn
+    - error
+    - debug
+Conditions:
+  CreateUser:
+    Fn::And:
+    - Fn::Not:
+      - Fn::Equals:
+        - Ref: EmailAddress
+        - ''
+    - Fn::Equals:
+      - Ref: UserPoolArn
+      - ''
+    - Fn::Equals:
+      - Ref: UserPoolClientId
+      - ''
+  CreateCloudFrontDistribution:
+    Fn::Equals:
+    - Ref: CreateCloudFrontDistribution
+    - 'true'
+  SPAMode:
+    Fn::Equals:
+    - Ref: EnableSPAMode
+    - 'true'
+  StaticSiteMode:
+    Fn::Equals:
+    - Ref: EnableSPAMode
+    - 'false'
+  CreateCloudFrontDistributionStaticSiteMode:
+    Fn::And:
+    - Fn::Equals:
+      - Ref: EnableSPAMode
+      - 'false'
+    - Fn::Equals:
+      - Ref: CreateCloudFrontDistribution
+      - 'true'
+  CreateCloudFrontDistributionSpaMode:
+    Fn::And:
+    - Fn::Equals:
+      - Ref: EnableSPAMode
+      - 'true'
+    - Fn::Equals:
+      - Ref: CreateCloudFrontDistribution
+      - 'true'
+  CreateUserPoolAndClient:
+    Fn::Equals:
+    - Ref: UserPoolArn
+    - ''
+  CreateUserPoolGroup:
+    Fn::And:
+    - Condition: CreateUserPoolAndClient
+    - Fn::Not:
+      - Fn::Equals:
+        - Ref: UserPoolGroupName
+        - ''
+  AttachUserToPoolGroup:
+    Fn::And:
+    - Condition: CreateUser
+    - Condition: CreateUserPoolGroup
+  UpdateUserPoolClient:
+    Fn::Or:
+    - Fn::Equals:
+      - Ref: CreateCloudFrontDistribution
+      - 'true'
+    - Fn::Not:
+      - Fn::Equals:
+        - Fn::Join:
+          - ''
+          - Ref: AlternateDomainNames
+        - ''
+Globals:
+  Function:
+    Timeout: 60
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateCloudFrontDistribution
+    Properties:
+      AccessControl: Private
+  CheckAuthHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: ba36efb7-a182-43e9-8bd9-354c719357f8
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Role:
+        Fn::GetAtt:
+        - LambdaEdgeExecutionRole
+        - Arn
+      Timeout: 5
+  ParseAuthHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 5c62c5f8-14f0-42e1-8e56-fcf22d8ad7e0
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Role:
+        Fn::GetAtt:
+        - LambdaEdgeExecutionRole
+        - Arn
+      Timeout: 5
+  RefreshAuthHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 4bcafb39-85f6-4fb2-b8b8-cbf8b71a6d06
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Role:
+        Fn::GetAtt:
+        - LambdaEdgeExecutionRole
+        - Arn
+      Timeout: 5
+  HttpHeadersHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 290214c9-6df5-416c-90be-e2251948112a
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Role:
+        Fn::GetAtt:
+        - LambdaEdgeExecutionRole
+        - Arn
+      Timeout: 5
+  SignOutHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: ba1aadfb-1753-405c-9e5e-b15bb852ea06
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Role:
+        Fn::GetAtt:
+        - LambdaEdgeExecutionRole
+        - Arn
+      Timeout: 5
+  LambdaEdgeExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - edgelambda.amazonaws.com
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: CreateCloudFrontDistribution
+    Properties:
+      DistributionConfig:
+        CacheBehaviors:
+        - PathPattern:
+            Ref: RedirectPathSignIn
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+          LambdaFunctionAssociations:
+          - EventType: viewer-request
+            LambdaFunctionARN:
+              Fn::GetAtt:
+              - ParseAuthHandlerCodeUpdate
+              - FunctionArn
+          TargetOriginId: dummy-origin
+          ViewerProtocolPolicy: redirect-to-https
+        - PathPattern:
+            Ref: RedirectPathAuthRefresh
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+          LambdaFunctionAssociations:
+          - EventType: viewer-request
+            LambdaFunctionARN:
+              Fn::GetAtt:
+              - RefreshAuthHandlerCodeUpdate
+              - FunctionArn
+          TargetOriginId: dummy-origin
+          ViewerProtocolPolicy: redirect-to-https
+        - PathPattern:
+            Ref: SignOutUrl
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+          LambdaFunctionAssociations:
+          - EventType: viewer-request
+            LambdaFunctionARN:
+              Fn::GetAtt:
+              - SignOutHandlerCodeUpdate
+              - FunctionArn
+          TargetOriginId: dummy-origin
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultCacheBehavior:
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+          LambdaFunctionAssociations:
+          - EventType: viewer-request
+            LambdaFunctionARN:
+              Fn::GetAtt:
+              - CheckAuthHandlerCodeUpdate
+              - FunctionArn
+          - EventType: origin-response
+            LambdaFunctionARN:
+              Fn::GetAtt:
+              - HttpHeadersHandlerCodeUpdate
+              - FunctionArn
+          TargetOriginId: protected-bucket
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+        - DomainName:
+            Fn::Sub: ${S3Bucket}.s3.amazonaws.com
+          Id: protected-bucket
+          S3OriginConfig:
+            OriginAccessIdentity:
+              Fn::Sub: origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}
+        - DomainName: will-never-be-reached.org
+          Id: dummy-origin
+          CustomOriginConfig:
+            OriginProtocolPolicy: match-viewer
+        CustomErrorResponses:
+        - Fn::If:
+          - SPAMode
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - Ref: AWS::NoValue
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Condition: CreateCloudFrontDistribution
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: CloudFront OAI
+  CloudfrontBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateCloudFrontDistribution
+    Properties:
+      Bucket:
+        Ref: S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - s3:GetObject
+          Effect: Allow
+          Resource:
+            Fn::Join:
+            - /
+            - - Fn::GetAtt:
+                - S3Bucket
+                - Arn
+              - '*'
+          Principal:
+            CanonicalUser:
+              Fn::GetAtt:
+              - CloudFrontOriginAccessIdentity
+              - S3CanonicalUserId
+        - Action:
+          - s3:ListBucket
+          Effect: Allow
+          Resource:
+            Fn::GetAtt:
+            - S3Bucket
+            - Arn
+          Principal:
+            CanonicalUser:
+              Fn::GetAtt:
+              - CloudFrontOriginAccessIdentity
+              - S3CanonicalUserId
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Condition: CreateUserPoolAndClient
+    Properties:
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      UserPoolName:
+        Ref: AWS::StackName
+      UsernameAttributes:
+      - email
+  UserPoolGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Condition: CreateUserPoolGroup
+    Properties:
+      GroupName:
+        Ref: UserPoolGroupName
+      UserPoolId:
+        Ref: UserPool
+  User:
+    Type: AWS::Cognito::UserPoolUser
+    Condition: CreateUser
+    Properties:
+      Username:
+        Ref: EmailAddress
+      UserPoolId:
+        Ref: UserPool
+  UserPoolGroupAttachment:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Condition: AttachUserToPoolGroup
+    Properties:
+      GroupName:
+        Ref: UserPoolGroupName
+      Username:
+        Ref: EmailAddress
+      UserPoolId:
+        Ref: UserPool
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: CreateUserPoolAndClient
+    Properties:
+      UserPoolId:
+        Ref: UserPool
+      PreventUserExistenceErrors: ENABLED
+      GenerateSecret:
+        Fn::If:
+        - StaticSiteMode
+        - true
+        - false
+      AllowedOAuthScopes:
+        Ref: OAuthScopes
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+      - code
+      SupportedIdentityProviders:
+      - COGNITO
+      CallbackURLs:
+      - https://example.com/will-be-replaced
+      LogoutURLs:
+      - https://example.com/will-be-replaced
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Condition: CreateUserPoolAndClient
+    Properties:
+      Domain:
+        Fn::Sub:
+        - auth-${StackIdSuffix}
+        - StackIdSuffix:
+            Fn::Select:
+            - 2
+            - Fn::Split:
+              - /
+              - Ref: AWS::StackId
+      UserPoolId:
+        Ref: UserPool
+  UserPoolDomainLookup:
+    Type: Custom::UserPoolDomainLookup
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - UserPoolDomainLookupHandler
+        - Arn
+      UserPoolArn:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Fn::GetAtt:
+          - UserPool
+          - Arn
+        - Ref: UserPoolArn
+  UserPoolDomainLookupHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 45a34b5e-465f-4700-8f58-19c4fcd4ea38
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - cognito-idp:DescribeUserPool
+          Resource:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Fn::GetAtt:
+              - UserPool
+              - Arn
+            - Ref: UserPoolArn
+  UserPoolClientUpdate:
+    Type: Custom::UserPoolClientUpdate
+    Condition: UpdateUserPoolClient
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - UserPoolClientUpdateHandler
+        - Arn
+      UserPoolArn:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Fn::GetAtt:
+          - UserPool
+          - Arn
+        - Ref: UserPoolArn
+      UserPoolClientId:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Ref: UserPoolClient
+        - Ref: UserPoolClientId
+      CloudFrontDistributionDomainName:
+        Fn::If:
+        - CreateCloudFrontDistribution
+        - Fn::GetAtt:
+          - CloudFrontDistribution
+          - DomainName
+        - ''
+      RedirectPathSignIn:
+        Ref: RedirectPathSignIn
+      RedirectPathSignOut:
+        Ref: RedirectPathSignOut
+      AlternateDomainNames:
+        Ref: AlternateDomainNames
+      OAuthScopes:
+        Ref: OAuthScopes
+  UserPoolClientUpdateHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: ae80c585-22f4-49a8-af7c-bdaf70c90713
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - cognito-idp:UpdateUserPoolClient
+          - cognito-idp:DescribeUserPoolClient
+          Resource: '*'
+  ClientSecretRetrieval:
+    Type: Custom::ClientSecretRetrieval
+    Condition: StaticSiteMode
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - ClientSecretRetrievalHandler
+        - Arn
+      UserPoolArn:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Fn::GetAtt:
+          - UserPool
+          - Arn
+        - Ref: UserPoolArn
+      UserPoolClientId:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Ref: UserPoolClient
+        - Ref: UserPoolClientId
+  ClientSecretRetrievalHandler:
+    Type: AWS::Serverless::Function
+    Condition: StaticSiteMode
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: a5235633-a9a1-4d38-8580-92faccbb619a
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - cognito-idp:DescribeUserPoolClient
+          Resource:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Fn::GetAtt:
+              - UserPool
+              - Arn
+            - Ref: UserPoolArn
+  StaticSite:
+    Type: Custom::StaticSite
+    Condition: CreateCloudFrontDistributionStaticSiteMode
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - StaticSiteHandler
+        - Arn
+      BucketName:
+        Ref: S3Bucket
+  StaticSiteHandler:
+    Type: AWS::Serverless::Function
+    Condition: CreateCloudFrontDistributionStaticSiteMode
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 76301002-39da-4916-a6ec-feae509de029
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Timeout: 180
+      MemorySize: 2048
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:ListBucket
+          Resource:
+          - Fn::GetAtt:
+            - S3Bucket
+            - Arn
+        - Effect: Allow
+          Action:
+          - s3:DeleteObject
+          - s3:PutObject
+          Resource:
+          - Fn::GetAtt:
+            - S3Bucket
+            - Arn
+          - Fn::Join:
+            - /
+            - - Fn::GetAtt:
+                - S3Bucket
+                - Arn
+              - '*'
+  ReactApp:
+    Type: Custom::ReactApp
+    Condition: CreateCloudFrontDistributionSpaMode
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - ReactAppHandler
+        - Arn
+      BucketName:
+        Ref: S3Bucket
+      UserPoolArn:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Fn::GetAtt:
+          - UserPool
+          - Arn
+        - Ref: UserPoolArn
+      ClientId:
+        Fn::If:
+        - CreateUserPoolAndClient
+        - Ref: UserPoolClient
+        - Ref: UserPoolClientId
+      CognitoAuthDomain:
+        Ref: UserPoolDomainLookup
+      RedirectPathSignIn:
+        Ref: RedirectPathSignIn
+      RedirectPathSignOut:
+        Ref: RedirectPathSignOut
+      OAuthScopes:
+        Fn::Join:
+        - ','
+        - Ref: OAuthScopes
+      SignOutUrl:
+        Ref: SignOutUrl
+  ReactAppHandler:
+    Type: AWS::Serverless::Function
+    Condition: CreateCloudFrontDistributionSpaMode
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: a52dcdf5-8703-4101-99cf-9fac95d7e9c9
+      Handler: bundle.handler
+      Runtime: nodejs12.x
+      Timeout: 300
+      MemorySize: 3008
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:ListBucket
+          Resource:
+          - Fn::GetAtt:
+            - S3Bucket
+            - Arn
+        - Effect: Allow
+          Action:
+          - s3:DeleteObject
+          - s3:PutObject
+          Resource:
+          - Fn::GetAtt:
+            - S3Bucket
+            - Arn
+          - Fn::Join:
+            - /
+            - - Fn::GetAtt:
+                - S3Bucket
+                - Arn
+              - '*'
+  ParseAuthHandlerCodeUpdate:
+    Type: Custom::LambdaCodeUpdate
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - LambdaCodeUpdateHandler
+        - Arn
+      LambdaFunction:
+        Fn::GetAtt:
+        - ParseAuthHandler
+        - Arn
+      Version:
+        Ref: Version
+      Configuration:
+        Fn::Sub:
+        - |
+          {
+            "userPoolArn": "${UserPoolArn}",
+            "clientId": "${ClientId}",
+            "clientSecret": "${ClientSecret}",
+            "oauthScopes": ${OAuthScopesJsonArray},
+            "cognitoAuthDomain": "${UserPoolDomainLookup}",
+            "redirectPathSignIn": "${RedirectPathSignIn}",
+            "redirectPathSignOut": "${RedirectPathSignOut}",
+            "redirectPathAuthRefresh": "${RedirectPathAuthRefresh}",
+            "cookieSettings": ${CookieSettings},
+            "mode": "${Mode}",
+            "httpHeaders": ${HttpHeaders},
+            "logLevel": "${LogLevel}",
+            "nonceSigningSecret": "${NonceSigningSecret}",
+            "cookieCompatibility": "${CookieCompatibility}",
+            "additionalCookies": ${AdditionalCookies},
+            "requiredGroup": "${UserPoolGroupName}"
+          }
+        - Mode:
+            Fn::If:
+            - SPAMode
+            - spaMode
+            - staticSiteMode
+          ClientSecret:
+            Fn::If:
+            - StaticSiteMode
+            - Fn::GetAtt:
+              - ClientSecretRetrieval
+              - ClientSecret
+            - ''
+          UserPoolArn:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Fn::GetAtt:
+              - UserPool
+              - Arn
+            - Ref: UserPoolArn
+          ClientId:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Ref: UserPoolClient
+            - Ref: UserPoolClientId
+          OAuthScopesJsonArray:
+            Fn::Join:
+            - ''
+            - - '["'
+              - Fn::Join:
+                - '", "'
+                - Ref: OAuthScopes
+              - '"]'
+  CheckAuthHandlerCodeUpdate:
+    Type: Custom::LambdaCodeUpdate
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - LambdaCodeUpdateHandler
+        - Arn
+      LambdaFunction:
+        Fn::GetAtt:
+        - CheckAuthHandler
+        - Arn
+      Version:
+        Ref: Version
+      Configuration:
+        Fn::Sub:
+        - |
+          {
+            "userPoolArn": "${UserPoolArn}",
+            "clientId": "${ClientId}",
+            "clientSecret": "${ClientSecret}",
+            "oauthScopes": ${OAuthScopesJsonArray},
+            "cognitoAuthDomain": "${UserPoolDomainLookup}",
+            "redirectPathSignIn": "${RedirectPathSignIn}",
+            "redirectPathSignOut": "${RedirectPathSignOut}",
+            "redirectPathAuthRefresh": "${RedirectPathAuthRefresh}",
+            "cookieSettings": ${CookieSettings},
+            "mode": "${Mode}",
+            "httpHeaders": ${HttpHeaders},
+            "logLevel": "${LogLevel}",
+            "nonceSigningSecret": "${NonceSigningSecret}",
+            "cookieCompatibility": "${CookieCompatibility}",
+            "additionalCookies": ${AdditionalCookies},
+            "requiredGroup": "${UserPoolGroupName}"
+          }
+        - Mode:
+            Fn::If:
+            - SPAMode
+            - spaMode
+            - staticSiteMode
+          ClientSecret:
+            Fn::If:
+            - StaticSiteMode
+            - Fn::GetAtt:
+              - ClientSecretRetrieval
+              - ClientSecret
+            - ''
+          UserPoolArn:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Fn::GetAtt:
+              - UserPool
+              - Arn
+            - Ref: UserPoolArn
+          ClientId:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Ref: UserPoolClient
+            - Ref: UserPoolClientId
+          OAuthScopesJsonArray:
+            Fn::Join:
+            - ''
+            - - '["'
+              - Fn::Join:
+                - '", "'
+                - Ref: OAuthScopes
+              - '"]'
+  HttpHeadersHandlerCodeUpdate:
+    Type: Custom::LambdaCodeUpdate
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - LambdaCodeUpdateHandler
+        - Arn
+      LambdaFunction:
+        Fn::GetAtt:
+        - HttpHeadersHandler
+        - Arn
+      Version:
+        Ref: Version
+      Configuration:
+        Fn::Sub: |
+          {
+            "httpHeaders": ${HttpHeaders},
+            "logLevel": "${LogLevel}"
+          }
+  RefreshAuthHandlerCodeUpdate:
+    Type: Custom::LambdaCodeUpdate
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - LambdaCodeUpdateHandler
+        - Arn
+      LambdaFunction:
+        Fn::GetAtt:
+        - RefreshAuthHandler
+        - Arn
+      Version:
+        Ref: Version
+      Configuration:
+        Fn::Sub:
+        - |
+          {
+            "userPoolArn": "${UserPoolArn}",
+            "clientId": "${ClientId}",
+            "clientSecret": "${ClientSecret}",
+            "oauthScopes": ${OAuthScopesJsonArray},
+            "cognitoAuthDomain": "${UserPoolDomainLookup}",
+            "redirectPathSignIn": "${RedirectPathSignIn}",
+            "redirectPathSignOut": "${RedirectPathSignOut}",
+            "redirectPathAuthRefresh": "${RedirectPathAuthRefresh}",
+            "cookieSettings": ${CookieSettings},
+            "mode": "${Mode}",
+            "httpHeaders": ${HttpHeaders},
+            "logLevel": "${LogLevel}",
+            "nonceSigningSecret": "${NonceSigningSecret}",
+            "cookieCompatibility": "${CookieCompatibility}",
+            "additionalCookies": ${AdditionalCookies},
+            "requiredGroup": "${UserPoolGroupName}"
+          }
+        - Mode:
+            Fn::If:
+            - SPAMode
+            - spaMode
+            - staticSiteMode
+          ClientSecret:
+            Fn::If:
+            - StaticSiteMode
+            - Fn::GetAtt:
+              - ClientSecretRetrieval
+              - ClientSecret
+            - ''
+          UserPoolArn:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Fn::GetAtt:
+              - UserPool
+              - Arn
+            - Ref: UserPoolArn
+          ClientId:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Ref: UserPoolClient
+            - Ref: UserPoolClientId
+          OAuthScopesJsonArray:
+            Fn::Join:
+            - ''
+            - - '["'
+              - Fn::Join:
+                - '", "'
+                - Ref: OAuthScopes
+              - '"]'
+  SignOutHandlerCodeUpdate:
+    Type: Custom::LambdaCodeUpdate
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - LambdaCodeUpdateHandler
+        - Arn
+      LambdaFunction:
+        Fn::GetAtt:
+        - SignOutHandler
+        - Arn
+      Version:
+        Ref: Version
+      Configuration:
+        Fn::Sub:
+        - |
+          {
+            "userPoolArn": "${UserPoolArn}",
+            "clientId": "${ClientId}",
+            "clientSecret": "${ClientSecret}",
+            "oauthScopes": ${OAuthScopesJsonArray},
+            "cognitoAuthDomain": "${UserPoolDomainLookup}",
+            "redirectPathSignIn": "${RedirectPathSignIn}",
+            "redirectPathSignOut": "${RedirectPathSignOut}",
+            "redirectPathAuthRefresh": "${RedirectPathAuthRefresh}",
+            "cookieSettings": ${CookieSettings},
+            "mode": "${Mode}",
+            "httpHeaders": ${HttpHeaders},
+            "logLevel": "${LogLevel}",
+            "nonceSigningSecret": "${NonceSigningSecret}",
+            "cookieCompatibility": "${CookieCompatibility}",
+            "additionalCookies": ${AdditionalCookies},
+            "requiredGroup": "${UserPoolGroupName}"
+          }
+        - Mode:
+            Fn::If:
+            - SPAMode
+            - spaMode
+            - staticSiteMode
+          ClientSecret:
+            Fn::If:
+            - StaticSiteMode
+            - Fn::GetAtt:
+              - ClientSecretRetrieval
+              - ClientSecret
+            - ''
+          UserPoolArn:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Fn::GetAtt:
+              - UserPool
+              - Arn
+            - Ref: UserPoolArn
+          ClientId:
+            Fn::If:
+            - CreateUserPoolAndClient
+            - Ref: UserPoolClient
+            - Ref: UserPoolClientId
+          OAuthScopesJsonArray:
+            Fn::Join:
+            - ''
+            - - '["'
+              - Fn::Join:
+                - '", "'
+                - Ref: OAuthScopes
+              - '"]'
+  LambdaCodeUpdateHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 19ab43ed-96e1-4ba5-896a-5540e066c2b1
+      Handler: index.handler
+      Runtime: nodejs12.x
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - lambda:GetFunction
+          - lambda:UpdateFunctionCode
+          Resource:
+          - Fn::GetAtt:
+            - ParseAuthHandler
+            - Arn
+          - Fn::GetAtt:
+            - CheckAuthHandler
+            - Arn
+          - Fn::GetAtt:
+            - HttpHeadersHandler
+            - Arn
+          - Fn::GetAtt:
+            - RefreshAuthHandler
+            - Arn
+          - Fn::GetAtt:
+            - SignOutHandler
+            - Arn
+  NonceSigningSecret:
+    Type: Custom::NonceSigningSecret
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - RandomValueGenerator
+        - Arn
+      Length: 16
+      Version:
+        Ref: Version
+  RandomValueGenerator:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri:
+        Bucket: <%REPO_BUCKET%>
+        Key: 248038d3-68d3-46b4-9b0e-066d166036f5
+      Handler: index.handler
+      Runtime: nodejs12.x
+Outputs:
+  S3Bucket:
+    Description: The S3 Bucket where the SPA (React, Angular, Vue, ...) is uploaded to
+    Condition: CreateCloudFrontDistribution
+    Value:
+      Ref: S3Bucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-S3Bucket
+  WebsiteUrl:
+    Description: URL of the CloudFront distribution that serves your SPA from S3
+    Condition: CreateCloudFrontDistribution
+    Value:
+      Fn::Sub: https://${CloudFrontDistribution.DomainName}
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-WebsiteUrl
+  CloudFrontDistribution:
+    Description: ID of the CloudFront distribution that serves your SPA from S3
+    Condition: CreateCloudFrontDistribution
+    Value:
+      Ref: CloudFrontDistribution
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-CloudFrontDistribution
+  UserPoolId:
+    Description: The ID of the Cognito User Pool
+    Condition: CreateUserPoolAndClient
+    Value:
+      Ref: UserPool
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-UserPoolId
+  ClientId:
+    Description: Client ID to use to interact with the User Pool
+    Condition: CreateUserPoolAndClient
+    Value:
+      Ref: UserPoolClient
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ClientId
+  ClientSecret:
+    Description: The client secret associated with the User Pool Client. This will be empty in SPA mode.
+    Condition: StaticSiteMode
+    Value:
+      Fn::GetAtt:
+      - ClientSecretRetrieval
+      - ClientSecret
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ClientSecret
+  CognitoAuthDomain:
+    Description: The domain where the Cognito Hosted UI is served
+    Condition: CreateUserPoolAndClient
+    Value:
+      Ref: UserPoolDomainLookup
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-CognitoAuthDomain
+  RedirectUrisSignIn:
+    Description: The URI(s) that will handle the redirect from Cognito after successfull sign-in
+    Condition: UpdateUserPoolClient
+    Value:
+      Fn::GetAtt:
+      - UserPoolClientUpdate
+      - RedirectUrisSignIn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-RedirectUrisSignIn
+  RedirectUrisSignOut:
+    Description: The URI(s) that will handle the redirect from Cognito after successfull sign-out
+    Condition: UpdateUserPoolClient
+    Value:
+      Fn::GetAtt:
+      - UserPoolClientUpdate
+      - RedirectUrisSignOut
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-RedirectUrisSignOut
+  ParseAuthHandler:
+    Description: The Lambda function ARN to use in Lambda@Edge for parsing the URL of the redirect from the Cognito hosted UI after succesful sign-in
+    Value:
+      Fn::GetAtt:
+      - ParseAuthHandlerCodeUpdate
+      - FunctionArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ParseAuthHandler
+  CheckAuthHandler:
+    Description: The Lambda function ARN to use in Lambda@Edge for checking the presence of a valid JWT
+    Value:
+      Fn::GetAtt:
+      - CheckAuthHandlerCodeUpdate
+      - FunctionArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-CheckAuthHandler
+  HttpHeadersHandler:
+    Description: The Lambda function ARN to use in Lambda@Edge for setting HTTP security headers
+    Value:
+      Fn::GetAtt:
+      - HttpHeadersHandlerCodeUpdate
+      - FunctionArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-HttpHeadersHandler
+  RefreshAuthHandler:
+    Description: The Lambda function ARN to use in Lambda@Edge for getting new JWT's using the refresh token
+    Value:
+      Fn::GetAtt:
+      - RefreshAuthHandlerCodeUpdate
+      - FunctionArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-RefreshAuthHandler
+  SignOutHandler:
+    Description: The Lambda function ARN to use in Lambda@Edge for signing out
+    Value:
+      Fn::GetAtt:
+      - SignOutHandlerCodeUpdate
+      - FunctionArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-SignOutHandler
+  CodeUpdateHandler:
+    Description: The Lambda function ARN of the custom resource that adds configuration to a function and publishes a version for use as Lambda@Edge
+    Value:
+      Fn::GetAtt:
+      - LambdaCodeUpdateHandler
+      - Arn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-CodeUpdateHandler
+  UserPoolClientUpdateHandler:
+    Description: The Lambda function ARN of the custom resource that updates the user pool client with the right redirect URI's for sign-in and sign-out
+    Value:
+      Fn::GetAtt:
+      - UserPoolClientUpdateHandler
+      - Arn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-UserPoolClientUpdateHandler
