@@ -1,0 +1,16 @@
+boto3 
+#>1.0<2.0
+sagemaker
+#>2.0<3.0
+umap==0.1.1
+umap-learn==0.3.9
+holoviews==1.12.7
+bokeh==1.2.0
+dash
+dash_ui
+#ipython
+#chardet
+#certifi
+#requests
+awswrangler
+zappa==0.50.0
