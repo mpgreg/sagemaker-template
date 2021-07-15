@@ -5,7 +5,7 @@ from sagemaker import get_execution_role
 import time
 
 #role = get_execution_role()
-role = 'arn:aws:iam::000378343852:role/service-role/AmazonSageMaker-ExecutionRole-20200929T192105'
+role = ''
 
 project_name = 'project1'
 
