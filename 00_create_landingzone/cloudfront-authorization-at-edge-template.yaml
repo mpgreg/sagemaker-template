@@ -6,7 +6,7 @@ Parameters:
   EmailAddress:
     Type: String
     Description: The email address of the user that will be created in the Cognito User Pool. Leave empty to skip user creation.
-    Default: 'milesper@gmail.com'
+    Default: '@gmail.com'
   RedirectPathSignIn:
     Type: String
     Description: The URL path that should handle the redirect from Cognito after sign-in
