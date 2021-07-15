@@ -21,7 +21,7 @@
         # Set to 'false' to skip the creation of a CloudFront distribution and associated resources, such as the private S3 bucket and the sample React app. This may be of use to you, if you just want to create the Lambda@Edge functions to use with your own CloudFront distribution.
         # CreateCloudFrontDistribution: 'true' # Uncomment to override default value
         # The email address of the user that will be created in the Cognito User Pool. Leave empty to skip user creation.
-        EmailAddress: 'milesper@gmail.com' #################################
+        EmailAddress: '@gmail.com' #################################
         # Set to 'false' to disable SPA-specific features (i.e. when deploying a static site that won't interact with logout/refresh)
         # EnableSPAMode: 'true' # Uncomment to override default value
         # The HTTP headers to set on all responses from CloudFront. To be provided as a JSON object
