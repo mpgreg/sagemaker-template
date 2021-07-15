@@ -1,8 +1,8 @@
 REGION='eu-west-1'
-ACCOUNT_ID='000378343852'
+ACCOUNT_ID=''
 REPO_NAME='smstudio-custom'
 IMAGE_NAME='custom-r'
-ROLE_ARN='arn:aws:iam::000378343852:role/aws-reserved/sso.amazonaws.com/eu-west-1/AWSReservedSSO_AdministratorAccess_bde7f93853c1c8ef'
+ROLE_ARN=''
 
 
 aws --region ${REGION} ecr get-login-password | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}
